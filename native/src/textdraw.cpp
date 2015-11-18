@@ -39,59 +39,56 @@ const SkTypeface* FontRegistry::registerStream(const char* data, uint32_t length
    	return typeface;
 }
 
-void FontRegistry::updateTypeface(SkPaint* paint, std::string text, bool bold, bool italic, SkTypeface* def) {
- 			paint->setTextEncoding(SkPaint::kUTF8_TextEncoding);
- 			const FontEntry* pBestMatchEntry = nullptr;
-    			SkTypeface* bestMatchTypeface = nullptr;
- 			for(uint i = 0; i < cache.size(); i++) 
- 			{
- 				if(bestMatchTypeface != nullptr && (bold != cache[i]->bold) && (italic != cache[i]->italic))
- 				{
- 					continue;
- 				}
- 				paint->setTypeface(cache[i]->typeface);
- 				if (!paint->containsText(text.c_str(), text.length())) {
-            				continue;
- 				}
- 				// Mark this as best match
-        			pBestMatchEntry = cache[i];
-        			bestMatchTypeface = cache[i]->typeface;
-            		
-        			// If this entry fully matches the request, stop search
-        			if (cache[i]->bold == bold && cache[i]->italic == italic)
-            				break;
-    			}
+void FontRegistry::updateTypeface(SkPaint* paint, std::string text, bool bold, bool italic, SkTypeface* def) 
+{
+ 	paint->setTextEncoding(SkPaint::kUTF8_TextEncoding);
+ 	const FontEntry* pBestMatchEntry = nullptr;
+    SkTypeface* bestMatchTypeface = nullptr;
+ 	for(uint i = 0; i < cache.size(); i++) 
+ 	{
+ 		if(bestMatchTypeface != nullptr && (bold != cache[i]->bold) && (italic != cache[i]->italic))
+ 		{
+ 			continue;
+ 		}
+ 		paint->setTypeface(cache[i]->typeface);
+ 		if (!paint->containsText(text.c_str(), text.length())) 
+ 		{
+            continue;
+ 		}
+ 		// Mark this as best match
+        pBestMatchEntry = cache[i];
+        bestMatchTypeface = cache[i]->typeface;          		
+        // If this entry fully matches the request, stop search
+        if (cache[i]->bold == bold && cache[i]->italic == italic)
+            break;
+
+    }
 		    
-    		// If there's no best match, fallback to default typeface
-    		if (bestMatchTypeface == nullptr)
-    		{
-				paint->setTypeface(def);
-				if (!paint->containsText(text.c_str(), text.length())) {
-					const auto fontMgr = SkFontMgr::RefDefault();
-					
-					const auto pText = text.c_str();
-					const auto unichar = SkUTF8_ToUnichar(pText);
-					const auto typeface = fontMgr->matchFamilyStyleCharacter(0, SkFontStyle(), nullptr, 0, unichar);
-					paint->setTypeface(typeface);
-					
-					fontMgr->unref();
- 				}
+    // If there's no best match, fallback to default typeface
+    if (bestMatchTypeface == nullptr)
+    {
+		paint->setTypeface(def);
+		if (!paint->containsText(text.c_str(), text.length())) {
+			const auto fontMgr = SkFontMgr::RefDefault();
+			const auto pText = text.c_str();
+			const auto unichar = SkUTF8_ToUnichar(pText);
+			const auto typeface = fontMgr->matchFamilyStyleCharacter(0, SkFontStyle(), nullptr, 0, unichar);
+			paint->setTypeface(typeface);	
+			fontMgr->unref();
+ 		}
+        // Adjust to handle bold text
+        paint->setFakeBoldText(bold);	
+        return;
+    }
 		
-        		// Adjust to handle bold text
-        		paint->setFakeBoldText(bold);
-		
-        		return;
-    		}
-		
-    		// There was a best match, use that
-    		paint->setTypeface(bestMatchTypeface);
-		
-    		// Adjust to handle bold text
-    		if (pBestMatchEntry->bold != bold && bold) {
-        		paint->setFakeBoldText(true);
-    		} else {
-    			paint->setFakeBoldText(false);
-    		}
+   	// There was a best match, use that
+    paint->setTypeface(bestMatchTypeface);	
+    // Adjust to handle bold text
+    if (pBestMatchEntry->bold != bold && bold) {
+        paint->setFakeBoldText(true);
+    } else {
+    	paint->setFakeBoldText(false);
+    }
 }
 
 
@@ -118,8 +115,9 @@ void fillTextProperties(RenderingContext* rc, TextDrawInfo* info, RenderingRuleS
 	if (info->textShadowColor == 0) {
 		info->textShadowColor = 0xffffffff;
 	}
-	info->textWrap = getDensityValue(rc, render, render->props()->R_TEXT_WRAP_WIDTH) * rc->getTextScale();
+	info->textWrap = render->getIntPropertyValue(render->props()->R_TEXT_WRAP_WIDTH);	
 	info->bold = render->getIntPropertyValue(render->props()->R_TEXT_BOLD, 0) > 0;
+	info->italic = render->getIntPropertyValue(render->props()->R_TEXT_ITALIC, 0) > 0;
 	info->minDistance = getDensityValue(rc, render, render->props()->R_TEXT_MIN_DISTANCE) * rc->getTextScale();
 	info->shieldRes = render->getStringPropertyValue(render->props()->R_TEXT_SHIELD) ;
 	info->shieldResIcon = render->getStringPropertyValue(render-> props()-> R_ICON);
@@ -207,7 +205,7 @@ bool calculatePathToRotate(RenderingContext* rc, TextDrawInfo* p) {
 		return true;
 	}
 	int len = p->path->countPoints();
-    SkPoint* points= new SkPoint[len];
+	SkPoint* points = new SkPoint[len];
 	p->path->getPoints(points, len);
 
 
@@ -247,7 +245,7 @@ bool calculatePathToRotate(RenderingContext* rc, TextDrawInfo* p) {
 		prevInside = inside;
 	}
 	if (textw >= roadLength) {
-		delete points;
+		delete[] points;
 		return false;
 	}
 	int startInd = 0;
@@ -365,7 +363,7 @@ bool calculatePathToRotate(RenderingContext* rc, TextDrawInfo* p) {
 			p->path = path;
 		}
 	}
-	delete points;
+	delete[] points;
 	return true;
 }
 
@@ -494,10 +492,8 @@ void drawShield(TextDrawInfo* textDrawInfo, std::string res, SkPaint* paintIcon,
 	SkBitmap* ico = getCachedBitmap(rc, res);
 	if (ico != NULL) {
 		float coef = rc->getDensityValue(rc->getScreenDensityRatio() * rc->getTextScale());
-		float left = textDrawInfo->centerX - ico->width() / 2 * coef; 
-				- 0.5f;
-		float top = textDrawInfo->centerY - ico->height() / 2 * coef  
-				- fm.fDescent - 0.5f; 								
+		float left = textDrawInfo->centerX - ico->width() / 2 * coef - 0.5f;
+		float top = textDrawInfo->centerY - ico->height() / 2 * coef - fm.fDescent - 0.5f;
 		// SkIRect src =  SkIRect::MakeXYWH(0, 0, ico->width(), ico->height())
 		SkRect r = SkRect::MakeXYWH(left, top, ico->width() * coef,
 					ico->height() * coef);
@@ -507,6 +503,9 @@ void drawShield(TextDrawInfo* textDrawInfo, std::string res, SkPaint* paintIcon,
 
 
 static SkTypeface* sDefaultTypeface = nullptr;
+static SkTypeface* sItalicTypeface = nullptr;
+static SkTypeface* sBoldTypeface = nullptr;
+static SkTypeface* sBoldItalicTypeface = nullptr;
 
 void drawTextOverCanvas(RenderingContext* rc, SkCanvas* cv) {
 	SkRect r = SkRect::MakeLTRB(0, 0, rc->getWidth(), rc->getHeight());
@@ -517,13 +516,19 @@ void drawTextOverCanvas(RenderingContext* rc, SkCanvas* cv) {
     // This is never released because of always +1 of reference counter
     if(!sDefaultTypeface)
         sDefaultTypeface = SkTypeface::CreateFromName("Droid Serif", SkTypeface::kNormal);
+    if(!sBoldTypeface)
+        sBoldTypeface = SkTypeface::CreateFromName("", SkTypeface::kBold);
+    if(!sItalicTypeface)
+        sItalicTypeface = SkTypeface::CreateFromName("", SkTypeface::kItalic);
+    if(!sBoldItalicTypeface)
+        sBoldItalicTypeface = SkTypeface::CreateFromName("", SkTypeface::kBoldItalic);
 #endif
 
 	SkPaint paintIcon;
 	paintIcon.setStyle(SkPaint::kStroke_Style);
 	paintIcon.setStrokeWidth(1);
 	paintIcon.setColor(0xff000000);
-	paintIcon.setFilterBitmap(true);
+	paintIcon.setFilterLevel(SkPaint::kLow_FilterLevel);
 	SkPaint paintText;
 	paintText.setStyle(SkPaint::kFill_Style);
 	paintText.setStrokeWidth(1);
@@ -543,8 +548,17 @@ void drawTextOverCanvas(RenderingContext* rc, SkCanvas* cv) {
             continue;
 
         // Prepare font
+        SkTypeface* def = sDefaultTypeface;
+        if( textDrawInfo->bold && textDrawInfo->italic) {
+        	def = sBoldItalicTypeface;
+        } else if(textDrawInfo->italic) {
+        	def = sItalicTypeface;
+        } else if(textDrawInfo->bold) {
+        	def = sBoldTypeface;
+        }
         globalFontRegistry.updateTypeface(&paintText, 
-			textDrawInfo->text, textDrawInfo->bold, false, sDefaultTypeface); //textDrawInfo->italic
+			textDrawInfo->text, textDrawInfo->bold, //false,
+			textDrawInfo->italic, def); 
    		// sest text size before finding intersection (it is used there)
 		float textSize = textDrawInfo->textSize ;
 		paintText.setTextSize(textSize);
