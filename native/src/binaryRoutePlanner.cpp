@@ -7,7 +7,7 @@
 
 #include "Logging.h"
 
-//	static bool PRINT_TO_CONSOLE_ROUTE_INFORMATION_TO_TEST = true;
+static bool PRINT_TO_CONSOLE_ROUTE_INFORMATION_TO_TEST = true;
 static const int REVERSE_WAY_RESTRICTION_ONLY = 1024;
 
 static const int ROUTE_POINTS = 11;
@@ -19,7 +19,7 @@ static const short RESTRICTION_NO_STRAIGHT_ON = 4;
 static const short RESTRICTION_ONLY_RIGHT_TURN = 5;
 static const short RESTRICTION_ONLY_LEFT_TURN = 6;
 static const short RESTRICTION_ONLY_STRAIGHT_ON = 7;
-static const bool TRACE_ROUTING = false;
+static const bool TRACE_ROUTING = true;
 
 
 inline int roadPriorityComparator(float o1DistanceFromStart, float o1DistanceToEnd, float o2DistanceFromStart,
@@ -251,6 +251,7 @@ SHARED_PTR<RouteSegment> loadSameSegment(RoutingContext* ctx, SHARED_PTR<RouteSe
 SHARED_PTR<RouteSegment> initRouteSegment(RoutingContext* ctx, SHARED_PTR<RouteSegment> segment, bool positiveDirection) {
 	if(segment->getSegmentStart() == 0 && !positiveDirection && segment->getRoad()->getPointsLength() > 0) {
 		segment = loadSameSegment(ctx, segment, 1);
+            // segment->getRoad->getId to get id for sr lookup
 	} else if(segment->getSegmentStart() == segment->getRoad()->getPointsLength() -1 && positiveDirection && segment->getSegmentStart() > 0) {
 		segment = loadSameSegment(ctx, segment, segment->getSegmentStart() -1);
 	}
@@ -361,7 +362,8 @@ SHARED_PTR<RouteSegment> searchRouteInternal(RoutingContext* ctx, SHARED_PTR<Rou
 	ctx->visitedSegments = 0;
 	int iterationsToUpdate = 0;
 	ctx->timeToCalculate.Start();
-	
+
+    OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] searchRouteInternal(): calculate route with A* Algorithm");
 
 	SegmentsComparator sgmCmp(ctx);
 	NonHeuristicSegmentsComparator nonHeuristicSegmentsComparator;
@@ -611,7 +613,7 @@ void processRouteSegment(RoutingContext* ctx, bool reverseWaySearch, SEGMENTS_QU
 		// 2. calculate point and try to load neighbor ways if they are not loaded
 		segmentDist  += squareRootDist(x, y,  prevx, prevy);
 			
-		// 2.1 calculate possible obstacle plus time
+		// 2.1 calculate possible obstacle plus time TODO add stress value as obstacle penalty?
 		double obstacle = ctx->config->router.defineRoutingObstacle(road, segmentPoint);
 		if (obstacle < 0) {
 			directionAllowed = false;
