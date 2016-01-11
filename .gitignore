@@ -10,3 +10,5 @@ externals/.stamp
 
 /moc
 .Ds_Store
+.cproject
+.project

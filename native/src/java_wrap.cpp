@@ -1055,9 +1055,9 @@ void parseRouteConfiguration(JNIEnv* ienv, RoutingConfiguration& rConfig, jobjec
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL Java_net_osmand_NativeLibrary_nativeRouting(JNIEnv* ienv,
-		jobject obj, 
-		jintArray  coordinates, jobject jRouteConfig, jfloat initDirection,
-		jobjectArray regions, jobject progress, jobject precalculatedRoute, bool basemap) {
+		jobject obj, jintArray  coordinates, jobject jRouteConfig, jfloat initDirection,
+		jobjectArray regions, jobject progress, jobject precalculatedRoute, bool basemap,
+		bool useSrRouting, jstring srDbPath, int srLevel) {
 	RoutingConfiguration config(initDirection);
 	parseRouteConfiguration(ienv, config, jRouteConfig);
 	RoutingContext c(&config);
@@ -1068,6 +1068,9 @@ extern "C" JNIEXPORT jobjectArray JNICALL Java_net_osmand_NativeLibrary_nativeRo
 	c.targetX = data[2];
 	c.targetY = data[3];
 	c.basemap = basemap;
+    c.useSrRouting = useSrRouting; // INFO set sr routing
+	c.srDbPath = ienv->GetStringUTFChars(srDbPath, NULL); // INFO set sr db path
+	c.srLevel = srLevel; // INFO set sr level
 	parsePrecalculatedRoute(ienv, c, precalculatedRoute);
 	ienv->ReleaseIntArrayElements(coordinates, (jint*)data, 0);
 	vector<RouteSegmentResult> r = searchRouteInternal(&c, false);

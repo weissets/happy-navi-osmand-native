@@ -43,7 +43,9 @@ LOCAL_SRC_FILES := \
         $(OSMAND_CORE_RELATIVE)/src/generalRouter.cpp \
 	$(OSMAND_CORE_RELATIVE)/src/binaryRoutePlanner.cpp \
 	$(OSMAND_CORE_RELATIVE)/src/proto/osmand_index.pb.cc \
-	$(OSMAND_CORE_RELATIVE)/src/java_wrap.cpp
+	$(OSMAND_CORE_RELATIVE)/src/java_wrap.cpp \
+	$(OSMAND_CORE_RELATIVE)/src/CppSQLite3.cpp \
+	$(OSMAND_CORE_RELATIVE)/src/sqlite3.c
 	
 ifdef OSMAND_PROFILE_NATIVE_OPERATIONS
 	LOCAL_CFLAGS += \
