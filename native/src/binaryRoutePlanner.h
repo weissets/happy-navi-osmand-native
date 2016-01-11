@@ -33,7 +33,10 @@ public :
 
 	// distance measured in time (seconds)
 	float distanceFromStart;
+//	float distanceFromStartSr;
 	float distanceToEnd;
+
+	double srValue; // INFO new
 
 	inline bool isFinal() {
 		return reverseWaySearch != 0;
@@ -54,6 +57,11 @@ public :
 	inline SHARED_PTR<RouteDataObject> getRoad() {
 		return road;
 	}
+
+//	inline void setDistanceFromStartSr(float dist) {
+//		distanceFromStartSr = dist * srValue;
+//		distanceFromStart = dist;
+//	}
 
 	static SHARED_PTR<RouteSegment> initRouteSegment(SHARED_PTR<RouteSegment> th, bool positiveDirection) {
 		if(th->segmentStart == 0 && !positiveDirection) {
@@ -77,6 +85,7 @@ public :
 				rs = th->oppositeDirection;
 			}
 		}
+		rs->srValue = th->srValue;
 		return rs;
 	}
 
@@ -85,6 +94,7 @@ public :
 			parentRoute(), parentSegmentEnd(0),
 			directionAssgn(0), reverseWaySearch(0), opposite(), 
 			distanceFromStart(0), distanceToEnd(0) {
+//		srValue = 1.0;
 	}
 	~RouteSegment(){
 	}
@@ -286,6 +296,9 @@ struct RoutingContext {
 	int targetX;
 	int targetY;
 	bool basemap;
+    bool useSrRouting;
+	string srDbPath;
+	int srLevel;
 
 	PrecalculatedRouteDirection precalcRoute;
 	SHARED_PTR<RouteSegment> finalRouteSegment;
