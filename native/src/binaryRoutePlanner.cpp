@@ -25,21 +25,33 @@ static const short RESTRICTION_ONLY_LEFT_TURN = 6;
 static const short RESTRICTION_ONLY_STRAIGHT_ON = 7;
 static const bool TRACE_ROUTING = false;
 
-static CppSQLite3DB db_ptr;
+//static CppSQLite3DB db_ptr;
 static bool useSrRouting = false;
 static int usedSrValues = 0;
 static int srLevel = 2;
-// INFO hashmap for already found sr values and not found values (set to 1.0)
+// INFO hashmap for sr values
 typedef UNORDERED(map)<int64_t, double> SRVALUE_MAP;
 static SRVALUE_MAP srValueMap;
+
+inline double readSrValueFromCache(int64_t id) {
+	if (useSrRouting) {
+		SRVALUE_MAP::iterator it = srValueMap.find(id);
+		if (it != srValueMap.end()) {
+			usedSrValues++;
+			return it->second;
+		}
+	}
+	return 1.0;
+}
 
 inline int roadPriorityComparator(float o1DistanceFromStart, float o1DistanceToEnd, double srValue1,
 								  float o2DistanceFromStart, float o2DistanceToEnd, double srValue2, float heuristicCoefficient) {
 	// f(x) = g(x) + h(x)  --- g(x) - distanceFromStart, h(x) - distanceToEnd (not exact)
 	float f1 = o1DistanceFromStart + heuristicCoefficient * o1DistanceToEnd;// * srValue1;
 	float f2 = o2DistanceFromStart + heuristicCoefficient * o2DistanceToEnd;// * srValue2;
-//	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Info, "compare: srValue1 = [%f] , srValue2 = "
-//			"[%f] , hc = [%f] , f1:f2 = %f:%f", srValue1, srValue2, heuristicCoefficient, f1, f2);
+	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Info, "compare: srValue1 = [%f] , srValue2 = "
+							  "[%f] , dist1 = [%f], dist2 = [%f]", srValue1, srValue2,
+					  o1DistanceToEnd, o2DistanceToEnd);
 	if (f1 == f2) {
 		return 0;
 	}
@@ -284,7 +296,6 @@ void initQueuesWithStartEnd(RoutingContext* ctx,  SHARED_PTR<RouteSegment> start
 		SHARED_PTR<RouteSegment> endPos = initRouteSegment(ctx, end, true);
 		SHARED_PTR<RouteSegment> endNeg = initRouteSegment(ctx, end, false);
 
-
 		// for start : f(start) = g(start) + h(start) = 0 + h(start) = h(start)
 		if(ctx->config->initialDirection > -180 && ctx->config->initialDirection < 180) {
 			ctx->firstRoadId = (start->road->id << ROUTE_POINTS) + start->getSegmentStart();
@@ -307,18 +318,22 @@ void initQueuesWithStartEnd(RoutingContext* ctx,  SHARED_PTR<RouteSegment> start
 	
 		float estimatedDistance = (float) h(ctx, ctx->startX, ctx->startY, ctx->targetX, ctx->targetY);
 		if(startPos.get() != NULL) {
+			startPos->srValue = 1.0; // INFO set sr value
 			startPos->distanceToEnd = estimatedDistance;
 			graphDirectSegments.push(startPos);
 		}
 		if(startNeg.get() != NULL) {
+			startNeg->srValue = 1.0; // INFO set sr value
 			startNeg->distanceToEnd = estimatedDistance;
 			graphDirectSegments.push(startNeg);
 		}
 		if(endPos.get() != NULL) {
+			endPos->srValue = 1.0; // INFO set sr value
 			endPos->distanceToEnd = estimatedDistance;
 			graphReverseSegments.push(endPos);
 		}
 		if(endNeg.get() != NULL) {
+			endNeg->srValue = 1.0; // INFO set sr value
 			endNeg->distanceToEnd = estimatedDistance;
 			graphReverseSegments.push(endNeg);
 		}
@@ -345,10 +360,12 @@ bool checkIfGraphIsEmpty(RoutingContext* ctx, bool allowDirection,
 						SHARED_PTR<RouteSegment> pos = RouteSegment::initRouteSegment(next, true);
 						SHARED_PTR<RouteSegment> neg = RouteSegment::initRouteSegment(next, false);
 						if (pos.get() != NULL) {
+							pos->srValue = readSrValueFromCache(pos->road->id); // INFO get sr value
 							pos->distanceToEnd = estimatedDistance;
 							graphSegments.push(pos);
 						}
 						if (neg.get() != NULL) {
+							neg->srValue = readSrValueFromCache(neg->road->id); // INFO get sr value
 							neg->distanceToEnd = estimatedDistance;
 							graphSegments.push(neg);
 						}
@@ -388,27 +405,40 @@ bool checkIfGraphIsEmpty(RoutingContext* ctx, bool allowDirection,
 //}
 
 // INFO convert sr value for comparator
-double convertSrValue(double srValue) {
+static double convertSrValue(double srValue) {
 	if (srValue == 1.0) {
 		return 1.0;
 	}
 	// change sr value for comparator compatibility (0 = best, ..., 2 = worst)
 	double converted = 2.0 - srValue;
 
-
 	if (srLevel == 1) {
+		// map sr value to range between 0.9 and 1.2
+		if (converted < 1) {
+			converted = 0.9 + 0.1 * converted;
+		} else {
+			converted = 1.0 + 0.1 * converted;
+		}
+	} else if (srLevel == 2) {
 		// map sr value to range between 0.75 and 1.5
 		if (converted < 1) {
 			converted = 0.75 + 0.25 * converted;
 		} else {
 			converted = 1.0 + 0.25 * converted;
 		}
-	} else if (srLevel == 3) {
+	} else if (srLevel == 4) {
 		// map sr value to range between 0.25 and 4.0
 		if (converted < 1) {
 			converted = 0.25 + 0.75 * converted;
 		} else {
 			converted = 1.0 + 1.5 * converted;
+		}
+	} else if (srLevel == 5) {
+		// map sr value to range between 0.1 and 10.0
+		if (converted < 1) {
+			converted = 0.1 + 0.9 * converted;
+		} else {
+			converted = 1.0 + 4.5 * converted;
 		}
 	} else {
 		// map sr value to range between 0.5 and 2.0
@@ -416,44 +446,71 @@ double convertSrValue(double srValue) {
 			converted = 0.5 + 0.5 * converted;
 		}
 	}
-	std::ostringstream sstream;
-	sstream << converted;
-	std::string value = sstream.str();
-	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
-					  "[INFO] -----> converted srValue to [%s]", value.c_str());
+//	std::ostringstream sstream;
+//	sstream << converted;
+//	std::string value = sstream.str();
+//	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
+//					  "[INFO] -----> converted srValue to [%s]", value.c_str());
 	return converted;
 }
 
 // INFO get sr value for given segment and return converted sr value
-double getSrValue(SHARED_PTR<RouteSegment> &segment) {
-	if (useSrRouting) {
-		SRVALUE_MAP::iterator it = srValueMap.find(segment->road->id);
-		if (it != srValueMap.end()) {
-			std::ostringstream sstream;
-			sstream << it->second;
-			std::string value = sstream.str();
-			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
-							  "[INFO] --> found id [%lld] with srValue [%s] in map",
-							  segment->road->id, value.c_str());
-			return it->second;
-		}
-		char sql_query [60];
-		snprintf(sql_query, 60, "SELECT srValue FROM SRData WHERE id=%lld;", segment->road->id);
-		CppSQLite3Query query = db_ptr.execQuery(sql_query);
-		if (!query.fieldIsNull(0)) {
-			usedSrValues++;
-			double convertedSrValue = convertSrValue(query.getFloatField(0, 1.0));
-			srValueMap[segment->road->id] = convertedSrValue;
+//double getSrValue(SHARED_PTR<RouteSegment> &segment) {
+//	if (useSrRouting) {
+//		SRVALUE_MAP::iterator it = srValueMap.find(segment->road->id);
+//		if (it != srValueMap.end()) {
+////			std::ostringstream sstream;
+////			sstream << it->second;
+////			std::string value = sstream.str();
+////			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
+////							  "[INFO] --> found id [%lld] with srValue [%s] in map",
+////							  segment->road->id, value.c_str());
+//			return it->second;
+//		}
+//		char sql_query [60];
+//		snprintf(sql_query, 60, "SELECT srValue FROM SRData WHERE id=%lld;", segment->road->id);
+//		CppSQLite3Query query = db_ptr.execQuery(sql_query);
+//		if (!query.fieldIsNull(0)) {
+//			usedSrValues++;
+//			double convertedSrValue = convertSrValue(query.getFloatField(0, 1.0));
+//			srValueMap[segment->road->id] = convertedSrValue;
+////			std::ostringstream sstream;
+////			sstream << convertedSrValue;
+////			std::string value = sstream.str();
+////			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
+////							  "[INFO] ---> found id [%lld] with srValue [%s]",
+////							  segment->road->id, value.c_str());
+//			return convertedSrValue;
+//		}
+//	}
+//	return 1.0;
+//}
+
+void readSrDbToCache(CppSQLite3DB &db) {
+	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] read db start");
+//	const char* sql_query = "SELECT * FROM SRData;";
+//	char sql_query [32];
+//	snprintf(sql_query, 32, "SELECT * FROM SRData;");
+	CppSQLite3Query query = db.execQuery("select * from srdata;");
+	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] query has %i fields",
+					  query.numFields());
+	for (int fld = 0; fld < query.numFields(); fld++) {
+		OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] field name = %s, "
+								  "field type = %s",
+						  query.fieldName(fld), query.fieldDeclType(fld));
+	}
+	while (!query.eof()) {
+		double convertedSrValue = convertSrValue(query.getFloatField(1, 1.0));
+		srValueMap[query.getInt64Field(0, 0)] = convertedSrValue;
 			std::ostringstream sstream;
 			sstream << convertedSrValue;
 			std::string value = sstream.str();
 			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug,
-							  "[INFO] ---> found id [%lld] with srValue [%s]",
-							  segment->road->id, value.c_str());
-			return convertedSrValue;
-		}
+							  "[INFO] ---> write id [%lld] with srValue [%s] to cache",
+							  query.getInt64Field(0, 0), value.c_str());
+		query.nextRow();
 	}
-	return 1.0;
+	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] read db end");
 }
 
 /**
@@ -479,11 +536,13 @@ SHARED_PTR<RouteSegment> searchRouteInternal(RoutingContext* ctx, SHARED_PTR<Rou
 		useSrRouting = false;
 	}
 	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] searchRouteInternal(): use sr routing = %s", useSrRouting ? "true" : "false");
-//	CppSQLite3DB db_ptr;
-//	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] created cpp sqlite3 db");
-	db_ptr.open(ctx->srDbPath.c_str());
-	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] opened db");
-//	SRVALUE_MAP srValueMap;
+
+	CppSQLite3DB db_ptr;
+	if (useSrRouting) {
+		db_ptr.open(ctx->srDbPath.c_str());
+		OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] opened db");
+		readSrDbToCache(db_ptr);
+	}
 
 	SegmentsComparator sgmCmp(ctx);
 	NonHeuristicSegmentsComparator nonHeuristicSegmentsComparator;
@@ -509,22 +568,8 @@ SHARED_PTR<RouteSegment> searchRouteInternal(RoutingContext* ctx, SHARED_PTR<Rou
 		graphSegments->pop();
 
 		// INFO check if sr value is set for segment
-//		if (useSrRouting) {
-//			SRVALUE_MAP::iterator it = srValueMap.find(segment->road->id);
-//			if (it != srValueMap.end()) {
-//				segment->srValue = it->second;
-//				OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[INFO] found srValue [%f] for"
-//										  " segment [%lld] in map", it->second, it->first);
-//			} else {
-//				searchSrDbForValueNew(db_ptr, segment, srValueMap);
-//			}
-//		}
-//		else {
-//			segment->srValue = 1.0;
-////			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "segment sr value set to [%f]",
-////							  segment->srValue);
-//		}
-		segment->srValue = getSrValue(segment);
+//		segment->srValue = getSrValue(segment);
+		segment->srValue = readSrValueFromCache(segment->road->id);
 
 		// Memory management
 		// ctx.memoryOverhead = calculateSizeOfSearchMaps(graphDirectSegments, graphReverseSegments, visitedDirectSegments, visitedOppositeSegments);	
@@ -597,12 +642,10 @@ SHARED_PTR<RouteSegment> searchRouteInternal(RoutingContext* ctx, SHARED_PTR<Rou
 			return finalSegment;
 		}
 	}
-//	if (ctx->useSrRouting) {
-//		sqlite3_finalize(ptr_stmt);
-//		sqlite3_close(ptr_db);
-//	}
-	srValueMap.clear(); // INFO clear cached sr values
-	db_ptr.close(); // INFO close db
+	if (useSrRouting) {
+		srValueMap.clear(); // INFO clear cached sr values
+		db_ptr.close(); // INFO close db
+	}
 	ctx->timeToCalculate.Pause();
 	OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Warning, "[Native] Result visited (visited roads %d, visited segments %d / %d , queue sizes %d / %d ) ",
 			ctx-> visitedSegments, visitedDirectSegments.size(), visitedOppositeSegments.size(),
@@ -706,6 +749,7 @@ bool checkIfOppositieSegmentWasVisited(RoutingContext* ctx, bool reverseWaySearc
 			frs->distanceFromStart = opposite->distanceFromStart + distStartObstacles;
 			frs->distanceToEnd = 0;
 			frs->opposite = opposite;
+			frs->srValue = readSrValueFromCache(frs->road->id); // INFO get sr value
 			graphSegments.push(frs);
 			if(TRACE_ROUTING){
 				printRoad("  >> Final segment : ", frs);
@@ -787,22 +831,9 @@ void processRouteSegment(RoutingContext* ctx, bool reverseWaySearch, SEGMENTS_QU
 		// 3. get intersected ways
 		SHARED_PTR<RouteSegment> roadNext = ctx->loadRouteSegment(x, y); // ctx.config->memoryLimitation - ctx.memoryOverhead
 
-//		if (useSrRouting) {
-//			SRVALUE_MAP::iterator it = srValueMap.find(roadNext->road->id);
-//			if (it != srValueMap.end()) {
-//				roadNext->srValue = it->second;
-////				OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[INFO] found srValue [%f] for"
-////						" next segment [%lld] in map", it->second, it->first);
-//			} else {
-//				searchSrDbForValueNew(db_ptr, roadNext, srValueMap);
-//			}
-//		}
-//		else {
-//			roadNext->srValue = 1.0;
-////			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "next segment sr value set to [%f]",
-////							  segment->srValue);
-//		}
-		roadNext->srValue = getSrValue(roadNext);
+		// INFO get sr value for next segment
+//		roadNext->srValue = getSrValue(roadNext);
+		roadNext->srValue = readSrValueFromCache(roadNext->road->id);
 
 		float distStartObstacles = segment->distanceFromStart + calculateTimeWithObstacles(ctx, road, segmentDist , obstaclesTime);
 		if(!ctx->precalcRoute.empty && ctx->precalcRoute.followNext) {
@@ -968,6 +999,9 @@ SHARED_PTR<RouteSegment> processIntersections(RoutingContext* ctx, SEGMENTS_QUEU
 			// find segment itself  
 			// (and process it as other with small exception that we don't add to graph segments and process immediately)
 			itself = RouteSegment::initRouteSegment(next, segment->isPositive());
+			if(itself.get() != NULL) {
+				itself->srValue = readSrValueFromCache(itself->road->id); // INFO get sr value for itself
+			}
 			if(itself.get() == NULL) {
 				// do nothing
 			} else if (itself->parentRoute.get() == NULL
@@ -991,7 +1025,6 @@ SHARED_PTR<RouteSegment> processIntersections(RoutingContext* ctx, SEGMENTS_QUEU
 									   distanceToEnd, segment, segmentPoint, nextPos);
 			processOneRoadIntersection(ctx, graphSegments, visitedSegments, distFromStart,
 									   distanceToEnd, segment, segmentPoint, nextNeg);
-
 		}
 		
 		// iterate to next road
@@ -1105,6 +1138,7 @@ void processOneRoadIntersection(RoutingContext* ctx, SEGMENTS_QUEUE& graphSegmen
 			VISITED_MAP& visitedSegments, double distFromStart, double distanceToEnd,
 								SHARED_PTR<RouteSegment> segment, int segmentPoint, SHARED_PTR<RouteSegment> next) {
 	if (next.get() != NULL) {
+		next->srValue = readSrValueFromCache(next->road->id); // INFO get sr value
 		double obstaclesTime = ctx->config->router.calculateTurnTime(next, next->isPositive()?
 				next->road->getPointsLength() - 1 : 0,  
 				segment, segmentPoint);

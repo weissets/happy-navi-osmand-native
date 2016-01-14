@@ -85,7 +85,7 @@ public :
 				rs = th->oppositeDirection;
 			}
 		}
-		rs->srValue = th->srValue;
+//		rs->srValue = th->srValue;
 		return rs;
 	}
 
