@@ -458,9 +458,14 @@ SHARED_PTR<RouteSegment> searchRouteInternal(RoutingContext* ctx, SHARED_PTR<Rou
 
 	CppSQLite3DB db_ptr;
 	if (useSrRouting) {
-		db_ptr.open(ctx->srDbPath.c_str());
-		OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] opened db");
-		readSrDbToCache(db_ptr);
+		try {
+			db_ptr.open(ctx->srDbPath.c_str());
+			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Debug, "[Native] [INFO] opened db");
+			readSrDbToCache(db_ptr);
+		} catch (CppSQLite3Exception &e) {
+			OsmAnd::LogPrintf(OsmAnd::LogSeverityLevel::Error, "[Native] searchRouteInternal(): db error = %s", e.errorMessage());
+			useSrRouting = false;
+		}
 	}
 
 	SegmentsComparator sgmCmp(ctx);
